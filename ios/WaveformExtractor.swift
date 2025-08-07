@@ -17,6 +17,7 @@ extension Notification.Name {
 
 public class WaveformExtractor {
   public private(set) var audioFile: AVAudioFile?
+  private var asset: AVAsset?
   private var result: RCTPromiseResolveBlock
   var flutterChannel: AudioWaveform
   private var waveformData = Array<Float>()
@@ -24,6 +25,7 @@ public class WaveformExtractor {
   var channelCount: Int = 1
   private var currentProgress: Float = 0.0
   private let abortWaveformDataQueue = DispatchQueue(label: "WaveformExtractor",attributes: .concurrent)
+  private var isRemoteURL: Bool = false
   
   private var _abortGetWaveformData: Bool = false
   
@@ -33,14 +35,103 @@ public class WaveformExtractor {
         _abortGetWaveformData = newValue
     }
 }
+
   init(url: URL, channel: AudioWaveform, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) throws {
-    audioFile = try AVAudioFile(forReading: url)
     result = resolve
     self.flutterChannel = channel
+    
+    // Check if URL is remote (http/https)
+    if url.scheme == "http" || url.scheme == "https" {
+      isRemoteURL = true
+      asset = AVAsset(url: url)
+      
+      // For remote URLs, we need to ensure the asset is loaded
+      let semaphore = DispatchSemaphore(value: 0)
+      var loadError: Error?
+      
+      asset?.loadValuesAsynchronously(forKeys: ["duration", "tracks"]) {
+        defer { semaphore.signal() }
+        
+        var error: NSError?
+        let status = self.asset?.statusOfValue(forKey: "duration", error: &error)
+        
+        if status == .failed || error != nil {
+          loadError = error
+        }
+      }
+      
+      // Wait for asset loading with timeout
+      let timeoutResult = semaphore.wait(timeout: .now() + 30.0) // 30 second timeout
+      
+      if timeoutResult == .timedOut {
+        throw NSError(domain: Constants.audioWaveforms, code: 1, userInfo: [NSLocalizedDescriptionKey: "Timeout loading remote audio file"])
+      }
+      
+      if let error = loadError {
+        throw error
+      }
+      
+      // Create a temporary local file for processing
+      try createLocalFileFromRemoteAsset()
+    } else {
+      // Local file - use existing logic
+      isRemoteURL = false
+      audioFile = try AVAudioFile(forReading: url)
+    }
+  }
+  
+  private func createLocalFileFromRemoteAsset() throws {
+    guard let asset = asset else {
+      throw NSError(domain: Constants.audioWaveforms, code: 1, userInfo: [NSLocalizedDescriptionKey: "Asset not available"])
+    }
+    
+    let tempDir = FileManager.default.temporaryDirectory
+    let tempFile = tempDir.appendingPathComponent(UUID().uuidString + ".m4a")
+    
+    let semaphore = DispatchSemaphore(value: 0)
+    var exportError: Error?
+    
+    guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+      throw NSError(domain: Constants.audioWaveforms, code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
+    }
+    
+    exportSession.outputURL = tempFile
+    exportSession.outputFileType = .m4a
+    
+    exportSession.exportAsynchronously {
+      defer { semaphore.signal() }
+      
+      if exportSession.status == .failed {
+        exportError = exportSession.error
+      }
+    }
+    
+    let timeoutResult = semaphore.wait(timeout: .now() + 60.0) // 60 second timeout for export
+    
+    if timeoutResult == .timedOut {
+      throw NSError(domain: Constants.audioWaveforms, code: 1, userInfo: [NSLocalizedDescriptionKey: "Timeout exporting remote audio file"])
+    }
+    
+    if let error = exportError {
+      throw error
+    }
+    
+    if exportSession.status != .completed {
+      throw NSError(domain: Constants.audioWaveforms, code: 1, userInfo: [NSLocalizedDescriptionKey: "Export failed with status: \(exportSession.status.rawValue)"])
+    }
+    
+    // Now create AVAudioFile from the temporary local file
+    audioFile = try AVAudioFile(forReading: tempFile)
   }
   
   deinit {
+    // Clean up temporary file if it was created for remote URL
+    if isRemoteURL, let audioFile = audioFile {
+      let tempURL = audioFile.url
+      try? FileManager.default.removeItem(at: tempURL)
+    }
     audioFile = nil
+    asset = nil
   }
   
   public func extractWaveform(samplesPerPixel: Int?,

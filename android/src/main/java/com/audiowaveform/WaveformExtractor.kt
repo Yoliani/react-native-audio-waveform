@@ -46,23 +46,62 @@ class WaveformExtractor(
         val mediaExtractor = MediaExtractor()
         this.extractor = mediaExtractor
         val uri = Uri.parse(path)
-        mediaExtractor.setDataSource(this.reactApplicationContext, uri, null)
-        val trackCount = mediaExtractor.trackCount
-        repeat(trackCount) {
-            val format = mediaExtractor.getTrackFormat(it)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
-            if (mime.contains("audio")) {
-                duration = format.getLong(MediaFormat.KEY_DURATION) / 1000000
-                mediaExtractor.selectTrack(it)
-                return format
+        
+        try {
+            // For remote URLs, we might need to add headers support
+            val isRemoteUrl = uri.scheme == "http" || uri.scheme == "https"
+            if (isRemoteUrl) {
+                // Set data source for remote URL with proper error handling
+                mediaExtractor.setDataSource(path)
+            } else {
+                // For local files, use context-aware data source
+                mediaExtractor.setDataSource(this.reactApplicationContext, uri, null)
+            }
+            
+            val trackCount = mediaExtractor.trackCount
+            repeat(trackCount) {
+                val format = mediaExtractor.getTrackFormat(it)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.contains("audio")) {
+                    duration = format.getLong(MediaFormat.KEY_DURATION) / 1000000
+                    mediaExtractor.selectTrack(it)
+                    return format
+                }
+            }
+        } catch (e: Exception) {
+            // If context-aware setDataSource fails for local files, try direct path
+            if (uri.scheme != "http" && uri.scheme != "https") {
+                try {
+                    mediaExtractor.setDataSource(path)
+                    val trackCount = mediaExtractor.trackCount
+                    repeat(trackCount) {
+                        val format = mediaExtractor.getTrackFormat(it)
+                        val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
+                        if (mime.contains("audio")) {
+                            duration = format.getLong(MediaFormat.KEY_DURATION) / 1000000
+                            mediaExtractor.selectTrack(it)
+                            return format
+                        }
+                    }
+                } catch (fallbackException: Exception) {
+                    throw Exception("Failed to set data source: ${fallbackException.message}", fallbackException)
+                }
+            } else {
+                throw Exception("Failed to load remote audio file: ${e.message}", e)
             }
         }
+        
         return null
     }
 
     fun startDecode() {
         try {
-            if (!File(path).exists()) {
+            // Check if it's a remote URL or local file
+            val uri = Uri.parse(path)
+            val isRemoteUrl = uri.scheme == "http" || uri.scheme == "https"
+            
+            // Only check file existence for local files
+            if (!isRemoteUrl && !File(path).exists()) {
                 extractorCallBack.onReject("File Error", "File does not exist at the given path.")
                 return
             }
