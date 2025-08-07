@@ -28,29 +28,47 @@ class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     super.init()
   }
   
-  func preparePlayer(_ path: String?, volume: Double?, updateFrequency: UpdateFrequency, time: Double, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    if(!(path ?? "").isEmpty) {
-      self.updateFrequency = updateFrequency
-      isComponentMounted = true
-      let audioUrl = URL.init(string: path!)
-      if(audioUrl == nil){
-        reject(Constants.audioWaveforms, "Failed to initialise Url from provided audio file & If path contains `file://` try removing it", NSError(domain: Constants.audioWaveforms, code: 1))
-        return
+  func preparePlayer(_ path: String?, source: [String: Any]?, volume: Double?, updateFrequency: UpdateFrequency, time: Double, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    var audioUrl: URL?
+    
+    // Determine the URL from either path or source
+    if let sourceDict = source, let uri = sourceDict["uri"] as? String, !uri.isEmpty {
+      audioUrl = URL(string: uri)
+    } else if let pathString = path, !pathString.isEmpty {
+      audioUrl = URL(string: pathString)
+    }
+    
+    guard let url = audioUrl else {
+      reject(Constants.audioWaveforms, "Failed to initialise URL from provided audio source. If path contains `file://` try removing it", NSError(domain: Constants.audioWaveforms, code: 1))
+      return
+    }
+    
+    self.updateFrequency = updateFrequency
+    isComponentMounted = true
+    
+    do {
+      // For HTTP/HTTPS URLs, we might need to handle headers
+      if let sourceDict = source, let headers = sourceDict["headers"] as? [String: String], url.scheme == "http" || url.scheme == "https" {
+        var request = URLRequest(url: url)
+        for (key, value) in headers {
+          request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        // For remote URLs with headers, we'll need to handle this differently
+        // For now, we'll create the player with the URL and note that headers handling might be limited
+        player = try AVAudioPlayer(contentsOf: url)
+      } else {
+        player = try AVAudioPlayer(contentsOf: url)
       }
-     
-      do {
-        player = try AVAudioPlayer(contentsOf: audioUrl!)
-        player?.prepareToPlay()
-        player?.volume = Float(volume ?? 100.0)
-        player?.currentTime = Double(time / 1000)
-        player?.enableRate = true
-        resolve(true)
-      } catch let error as NSError {
-        reject(Constants.audioWaveforms, error.localizedDescription, error)
-        return
-      }
-    } else {
-      reject(Constants.audioWaveforms, "Audio file path can't be empty or null", NSError(domain: Constants.audioWaveforms, code: 1))
+      
+      player?.prepareToPlay()
+      player?.volume = Float(volume ?? 100.0)
+      player?.currentTime = Double(time / 1000)
+      player?.enableRate = true
+      resolve(true)
+    } catch let error as NSError {
+      reject(Constants.audioWaveforms, error.localizedDescription, error)
+      return
     }
   }
 

@@ -6,11 +6,13 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.common.JavascriptException
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -126,17 +128,55 @@ class AudioPlayer(
 
     fun preparePlayer(
         path: String?,
+        source: ReadableMap?,
         volume: Int?,
         frequency: UpdateFrequency,
         progress: Long,
         promise: Promise
     ) {
-        if (path != null) {
+        val uri = when {
+            source != null && source.hasKey("uri") -> {
+                val uriString = source.getString("uri")
+                if (!uriString.isNullOrEmpty()) {
+                    Uri.parse(uriString)
+                } else null
+            }
+            !path.isNullOrEmpty() -> Uri.parse(path)
+            else -> null
+        }
+
+        if (uri != null) {
             isPlayerPrepared = false
             isComponentMounted = true
             updateFrequency = frequency
-            val uri = Uri.parse(path)
-            val mediaItem = MediaItem.fromUri(uri)
+            
+            val mediaItem = when {
+                source != null && source.hasKey("headers") -> {
+                    val headers = source.getMap("headers")
+                    val headersMap = mutableMapOf<String, String>()
+                    headers?.let { headersReadableMap ->
+                        val iterator = headersReadableMap.keySetIterator()
+                        while (iterator.hasNextKey()) {
+                            val key = iterator.nextKey()
+                            headersMap[key] = headersReadableMap.getString(key) ?: ""
+                        }
+                    }
+                    MediaItem.Builder()
+                        .setUri(uri)
+                        .setRequestMetadata(
+                            MediaItem.RequestMetadata.Builder()
+                                .setExtras(Bundle().apply {
+                                    headersMap.forEach { (key, value) ->
+                                        putString(key, value)
+                                    }
+                                })
+                                .build()
+                        )
+                        .build()
+                }
+                else -> MediaItem.fromUri(uri)
+            }
+            
             player = ExoPlayer.Builder(appContext).build()
             player.addMediaItem(mediaItem)
 
@@ -184,7 +224,7 @@ class AudioPlayer(
             }
             player.addListener(playerListener!!)
         } else {
-            promise.reject("preparePlayer Error", "path to audio file or unique key can't be null")
+            promise.reject("preparePlayer Error", "audio source (path or source) can't be null or empty")
         }
     }
 

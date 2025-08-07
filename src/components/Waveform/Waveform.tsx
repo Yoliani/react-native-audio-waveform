@@ -47,7 +47,6 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     // The maximum number of candles set in the waveform. Once this limit is reached, the oldest candle will be removed as a new one is added to the waveform.
     maxCandlesToRender = 300,
     mode,
-    path,
     volume = 3,
     // The playback speed of the audio player. A value of 1.0 represents normal playback speed.
     playbackSpeed = 1.0,
@@ -66,6 +65,34 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     onChangeWaveformLoadState = (_state: boolean) => {},
     showsHorizontalScrollIndicator = false,
   } = props as StaticWaveform & LiveWaveform;
+
+  // Determine the audio source to use
+  const audioSource = React.useMemo(() => {
+    const staticProps = props as StaticWaveform;
+    if (staticProps.source?.uri) {
+      return staticProps.source.uri;
+    }
+    if (staticProps.path) {
+      return staticProps.path;
+    }
+    return null;
+  }, [props]);
+
+  // Create player key based on the audio source
+  const playerKey = React.useMemo(
+    () => `PlayerFor${audioSource}`,
+    [audioSource]
+  );
+
+  // Validate that either path or source is provided for static mode
+  React.useEffect(() => {
+    if (mode === 'static' && !audioSource) {
+      onError(
+        new Error('Either path or source must be provided for static mode')
+      );
+    }
+  }, [mode, audioSource, onError]);
+
   const viewRef = useRef<View>(null);
   const scrollRef = useRef<ScrollView>(null);
   const isLayoutCalculated = useRef<boolean>(false);
@@ -115,7 +142,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
    */
   const updatePlaybackSpeed = async (speed: number) => {
     try {
-      await setPlaybackSpeed({ speed, playerKey: `PlayerFor${path}` });
+      await setPlaybackSpeed({ speed, playerKey });
     } catch (error) {
       console.error('Error updating playback speed', error);
     }
@@ -126,31 +153,35 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioSpeed]);
 
-  const preparePlayerForPath = async (progress?: number) => {
-    if (!isNil(path) && !isEmpty(path)) {
-      try {
-        const prepare = await preparePlayer({
-          path,
-          playerKey: `PlayerFor${path}`,
-          updateFrequency: UpdateFrequency.medium,
-          volume: volume,
-          progress,
-        });
-        return Promise.resolve(prepare);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    } else {
+  const prepareAudioPlayer = async (progress?: number) => {
+    if (!audioSource) {
       return Promise.reject(
-        new Error(`Can not start player for path: ${path}`)
+        new Error(
+          'Can not start player: no audio source provided (path or source)'
+        )
       );
+    }
+
+    try {
+      const staticProps = props as StaticWaveform;
+      const prepare = await preparePlayer({
+        ...(staticProps.path ? { path: staticProps.path } : {}),
+        ...(staticProps.source ? { source: staticProps.source } : {}),
+        playerKey,
+        updateFrequency: UpdateFrequency.medium,
+        volume: volume,
+        progress,
+      });
+      return Promise.resolve(prepare);
+    } catch (err) {
+      return Promise.reject(err);
     }
   };
 
   const getAudioDuration = async () => {
     try {
       const duration = await getDuration({
-        playerKey: `PlayerFor${path}`,
+        playerKey,
         durationType: DurationType.max,
       });
       if (!isNil(duration)) {
@@ -159,7 +190,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
         return Promise.resolve(audioDuration);
       } else {
         return Promise.reject(
-          new Error(`Could not get duration for path: ${path}`)
+          new Error(`Could not get duration for source: ${audioSource}`)
         );
       }
     } catch (err) {
@@ -169,7 +200,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
 
   const preparePlayerAndGetDuration = async () => {
     try {
-      const prepare = await preparePlayerForPath();
+      const prepare = await prepareAudioPlayer();
       if (prepare) {
         const duration = await getAudioDuration();
         if (duration < 0) {
@@ -181,13 +212,15 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     }
   };
 
-  const getAudioWaveFormForPath = async (noOfSample: number) => {
-    if (!isNil(path) && !isEmpty(path)) {
+  const getAudioWaveForm = async (noOfSample: number) => {
+    if (!isNil(audioSource) && !isEmpty(audioSource)) {
       try {
         onChangeWaveformLoadState(true);
+        const staticProps = props as StaticWaveform;
         const result = await extractWaveformData({
-          path: path,
-          playerKey: `PlayerFor${path}`,
+          ...(staticProps.path ? { path: staticProps.path } : {}),
+          ...(staticProps.source ? { source: staticProps.source } : {}),
+          playerKey,
           noOfSamples: Math.max(noOfSample, 1),
         });
         onChangeWaveformLoadState(false);
@@ -206,7 +239,9 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
       }
     } else {
       onError(
-        new Error(`Can not find waveform for mode ${mode} path: ${path}`)
+        new Error(
+          `Can not find waveform for mode ${mode} source: ${audioSource}`
+        )
       );
     }
   };
@@ -215,7 +250,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     if (mode === 'static') {
       try {
         const result = await stopPlayer({
-          playerKey: `PlayerFor${path}`,
+          playerKey,
         });
         isAudioPlaying.current = false;
         if (!isNil(result) && result) {
@@ -227,7 +262,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
           return Promise.resolve(result);
         } else {
           return Promise.reject(
-            new Error(`error in stopping player for path: ${path}`)
+            new Error(`error in stopping player for source: ${audioSource}`)
           );
         }
       } catch (err) {
@@ -246,16 +281,15 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
         isAudioPlaying.current = true;
         if (playerState === PlayerState.stopped) {
           if (isWaveformExtracted) {
-            await preparePlayerForPath(currentProgress);
+            await prepareAudioPlayer(currentProgress);
           } else {
-            await getAudioWaveFormForPath(noOfSamples);
+            await getAudioWaveForm(noOfSamples);
           }
         }
 
         const play = await playPlayer({
           finishMode: FinishMode.stop,
-          playerKey: `PlayerFor${path}`,
-          path: path,
+          playerKey,
           speed: audioSpeed,
           ...args,
         });
@@ -265,7 +299,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
           return Promise.resolve(true);
         } else {
           return Promise.reject(
-            new Error(`error in starting player for path: ${path}`)
+            new Error(`error in starting player for source: ${audioSource}`)
           );
         }
       } catch (error) {
@@ -288,7 +322,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
       try {
         isAudioPlaying.current = false;
         const pause = await pausePlayer({
-          playerKey: `PlayerFor${path}`,
+          playerKey,
         });
         if (pause) {
           if (changePlayerState) {
@@ -298,7 +332,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
           return Promise.resolve(true);
         } else {
           return Promise.reject(
-            new Error(`error in pause player for path: ${path}`)
+            new Error(`error in pause player for source: ${audioSource}`)
           );
         }
       } catch (error) {
@@ -437,7 +471,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
 
       setNoOfSamples(getNumberOfSamples);
       if (mode === 'static') {
-        getAudioWaveFormForPath(getNumberOfSamples);
+        getAudioWaveForm(getNumberOfSamples);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -454,7 +488,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
         if (!panMoving) {
           try {
             await seekToPlayer({
-              playerKey: `PlayerFor${path}`,
+              playerKey,
               progress: clampedSeekAmount * songDuration,
             });
           } catch (e) {
@@ -481,7 +515,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
 
   useEffect(() => {
     const tracePlayerState = onDidFinishPlayingAudio(async data => {
-      if (data.playerKey === `PlayerFor${path}`) {
+      if (data.playerKey === playerKey) {
         if (data.finishType === FinishMode.stop) {
           stopPlayerAction();
         } else if (data.finishType === FinishMode.pause) {
@@ -491,7 +525,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     });
 
     const tracePlaybackValue = onCurrentDuration(data => {
-      if (data.playerKey === `PlayerFor${path}`) {
+      if (data.playerKey === playerKey) {
         const currentAudioDuration = Number(data.currentDuration);
 
         if (!isNaN(currentAudioDuration)) {
@@ -637,7 +671,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     stopRecord: stopRecordingAction,
     resumeRecord: resumeRecordingAction,
     currentState: mode === 'static' ? playerState : recorderState,
-    playerKey: path,
+    playerKey: audioSource || '',
   }));
 
   return (

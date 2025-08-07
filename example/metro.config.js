@@ -33,7 +33,7 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
         acc[name] = path.join(__dirname, 'node_modules', name);
         return acc;
       }, {}),
-      '@simform_solutions/react-native-audio-waveform': path.resolve(
+      '@yoliani/react-native-audio-waveform': path.resolve(
         __dirname,
         '..'
       ),

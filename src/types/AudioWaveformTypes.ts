@@ -9,6 +9,12 @@ import type {
 interface IPlayerKey {
   playerKey: string;
 }
+
+export interface IAudioSource {
+  uri: string;
+  headers?: Record<string, string>;
+}
+
 interface IPlayerPath {
   path: string;
 }
@@ -22,11 +28,15 @@ export interface IStartRecording extends IPlayerPath {
   updateFrequency?: UpdateFrequency;
 }
 
-export interface IExtractWaveform extends IPlayerKey, IPlayerPath {
+export interface IExtractWaveform extends IPlayerKey {
+  path?: string;
+  source?: IAudioSource;
   noOfSamples?: number;
 }
 
-export interface IPreparePlayer extends IPlayerKey, IPlayerPath {
+export interface IPreparePlayer extends IPlayerKey {
+  path?: string;
+  source?: IAudioSource;
   updateFrequency?: UpdateFrequency;
   volume?: number;
   progress?: number;

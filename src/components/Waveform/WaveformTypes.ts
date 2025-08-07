@@ -1,6 +1,6 @@
 import type { StyleProp, ViewStyle } from 'react-native';
 import type { FinishMode, PlayerState, RecorderState } from '../../constants';
-import type { IStartRecording } from '../../types';
+import type { IStartRecording, IAudioSource } from '../../types';
 
 type StaticOrLive = 'static' | 'live';
 
@@ -17,7 +17,8 @@ interface BaseWaveform {
 
 export interface StaticWaveform extends BaseWaveform {
   mode: 'static';
-  path: string;
+  path?: string;
+  source?: IAudioSource;
   volume?: number;
   scrubColor?: string;
   onPlayerStateChange?: (playerState: PlayerState) => void;

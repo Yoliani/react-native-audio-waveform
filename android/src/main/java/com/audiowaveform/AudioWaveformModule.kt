@@ -33,6 +33,8 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
     private var bitRate: Int = 128000
     private val handler = Handler(Looper.getMainLooper())
     private var startTime: Long = 0
+    private var emittingRecorderValueLastTime: Long = 0
+    private var totalRecodingTime: Long = 0
 
     companion object {
         const val NAME = "AudioWaveform"
@@ -83,6 +85,7 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
         val useLegacyNormalization = true
         audioRecorder.startRecorder(recorder, useLegacyNormalization, promise)
         startTime = System.currentTimeMillis() // Initialize startTime
+        totalRecodingTime = 0
         startEmittingRecorderValue()
     }
 
@@ -108,6 +111,7 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
         }
 
         try {
+            stopEmittingRecorderValue()
             val currentTime = System.currentTimeMillis()
             if (currentTime - startTime < 500) {
                 promise.reject("SHORT_RECORDING", "Recording is too short")
@@ -135,6 +139,7 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
         }
 
         val path = obj.getString(Constants.path)
+        val source = obj.getMap("source")
         val key = obj.getString(Constants.playerKey)
         val frequency = obj.getInt(Constants.updateFrequency)
         val volume = obj.getInt(Constants.volume)
@@ -148,6 +153,7 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
             initPlayer(key)
             audioPlayers[key]?.preparePlayer(
                 path,
+                source,
                 volume,
                 getUpdateFrequency(frequency),
                 progress,
@@ -226,11 +232,25 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
     fun extractWaveformData(obj: ReadableMap, promise: Promise) {
         val key = obj.getString(Constants.playerKey)
         val path = obj.getString(Constants.path)
+        val source = obj.getMap("source")
         val noOfSamples = obj.getInt(Constants.noOfSamples)
+        
         if(key != null) {
-            createOrUpdateExtractor(key, noOfSamples, path, promise)
+            // Determine the URI from either path or source
+            val uri = when {
+                source != null && source.hasKey("uri") -> source.getString("uri")
+                !path.isNullOrEmpty() -> path
+                else -> null
+            }
+            
+            if (!uri.isNullOrEmpty()) {
+                createOrUpdateExtractor(key, noOfSamples, uri, promise)
+            } else {
+                promise.reject("extractWaveformData Error", "No valid audio source provided (path or source)")
+            }
         } else {
             Log.e(Constants.LOG_TAG, "Can not get waveform data Player key is null")
+            promise.reject("extractWaveformData Error", "Player key is null")
         }
     }
 
@@ -296,16 +316,16 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
     private fun createOrUpdateExtractor(
         playerKey: String,
         noOfSamples: Int,
-        path: String?,
+        audioUri: String?,
         promise: Promise,
     ) {
-        if (path == null) {
-            promise.reject("createOrUpdateExtractor Error" , "No Path Provided")
+        if (audioUri == null) {
+            promise.reject("createOrUpdateExtractor Error" , "No audio URI provided")
             return
         }
         extractors[playerKey] = WaveformExtractor(
             context = reactApplicationContext,
-            path = path,
+            path = audioUri,
             expectedPoints = noOfSamples,
             key = playerKey,
             extractorCallBack = object : ExtractorCallBack {
@@ -415,6 +435,10 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
         override fun run() {
             val currentDecibel = getDecibel()
             val args: WritableMap = Arguments.createMap()
+            val currentTime = System.currentTimeMillis()
+            val timeFromLastEmitting =  currentTime - emittingRecorderValueLastTime
+            totalRecodingTime += timeFromLastEmitting
+            args.putInt(Constants.progress, totalRecodingTime.toInt())
             if (currentDecibel == Double.NEGATIVE_INFINITY) {
                 args.putDouble(Constants.currentDecibel, 0.0)
             } else {
@@ -422,12 +446,14 @@ class AudioWaveformModule(context: ReactApplicationContext): ReactContextBaseJav
                     args.putDouble(Constants.currentDecibel, currentDecibel/1000)
                 }
             }
+            emittingRecorderValueLastTime = currentTime
             handler.postDelayed(this, UpdateFrequency.Low.value)
             reactApplicationContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(Constants.onCurrentRecordingWaveformData, args)
         }
     }
 
     private fun startEmittingRecorderValue() {
+        emittingRecorderValueLastTime = System.currentTimeMillis()
         handler.postDelayed(emitLiveRecordValue, UpdateFrequency.Low.value)
     }
 

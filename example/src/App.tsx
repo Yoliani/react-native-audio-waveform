@@ -9,7 +9,7 @@ import {
   Waveform,
   useAudioPermission,
   useAudioPlayer,
-} from '@simform_solutions/react-native-audio-waveform';
+} from '@yoliani/react-native-audio-waveform';
 import React, {
   Dispatch,
   SetStateAction,

@@ -101,39 +101,45 @@ class AudioWaveform: RCTEventEmitter {
   @objc func extractWaveformData(_ args: NSDictionary?, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) -> Void {
     let key = args?[Constants.playerKey] as? String
     let path = args?[Constants.path] as? String
+    let source = args?["source"] as? [String: Any]
     let noOfSamples = args?[Constants.noOfSamples] as? Int
     if(key != nil) {
-      createOrUpdateExtractor(playerKey: key!, path: path, noOfSamples: noOfSamples, resolve: resolve, rejecter: reject)
+      createOrUpdateExtractor(playerKey: key!, path: path, source: source, noOfSamples: noOfSamples, resolve: resolve, rejecter: reject)
     } else {
       reject(Constants.audioWaveforms,"Can not get waveform data",nil)
     }
   }
   
-  func createOrUpdateExtractor(playerKey: String, path: String?, noOfSamples: Int?, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
-    if(!(path ?? "").isEmpty) {
-      do {
-        let audioUrl = URL.init(string: path!)
-        if(audioUrl == nil){
-          reject(Constants.audioWaveforms, "Failed to initialise Url from provided audio file If path contains `file://` try removing it", nil)
-            return
-        }
-        let newExtractor = try WaveformExtractor(url: audioUrl!, channel: self, resolve: resolve, rejecter: reject)
-        extractors[playerKey] = newExtractor
-        let data = newExtractor.extractWaveform(samplesPerPixel: noOfSamples, playerKey: playerKey)
-        newExtractor.cancel()
-        if(newExtractor.progress == 1.0) {
-          // Normalize the waveform data
-          let normalizedData = normalizeWaveformData(data: data!, scale: 0.12)
-          let waveformData = newExtractor.getChannelMean(data: normalizedData)
-          resolve([waveformData])
-        }
-      } catch let e {
+  func createOrUpdateExtractor(playerKey: String, path: String?, source: [String: Any]?, noOfSamples: Int?, resolve: @escaping RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    var audioUrl: URL?
+    
+    // Determine the URL from either path or source
+    if let sourceDict = source, let uri = sourceDict["uri"] as? String, !uri.isEmpty {
+      audioUrl = URL(string: uri)
+    } else if let pathString = path, !pathString.isEmpty {
+      audioUrl = URL(string: pathString)
+    }
+    
+    guard let url = audioUrl else {
+      reject(Constants.audioWaveforms, "Failed to initialise URL from provided audio source. If path contains `file://` try removing it", nil)
+      return
+    }
+    
+    do {
+      let newExtractor = try WaveformExtractor(url: url, channel: self, resolve: resolve, rejecter: reject)
+      extractors[playerKey] = newExtractor
+      let data = newExtractor.extractWaveform(samplesPerPixel: noOfSamples, playerKey: playerKey)
+      newExtractor.cancel()
+      if(newExtractor.progress == 1.0) {
+        // Normalize the waveform data
+        let normalizedData = normalizeWaveformData(data: data!, scale: 0.12)
+        let waveformData = newExtractor.getChannelMean(data: normalizedData)
+        resolve([waveformData])
+      }
+    } catch let e {
         reject(Constants.audioWaveforms, "Failed to decode audio file", e)
       }
-    } else {
-      reject(Constants.audioWaveforms, "Audio file path can't be empty or null", nil)
-      
-    }
+  }
   }
 
   func normalizeWaveformData(data: [[Float]], scale: Float = 0.25, threshold: Float = 0.01) -> [[Float]] {
@@ -151,6 +157,7 @@ class AudioWaveform: RCTEventEmitter {
     if(key != nil){
       initPlayer(playerKey: key!)
       audioPlayers[key!]?.preparePlayer(args?[Constants.path] as? String,
+                                        source: args?["source"] as? [String: Any],
                                         volume: args?[Constants.volume] as? Double,
                                         updateFrequency: UpdateFrequency(rawValue: (args?[Constants.updateFrequency]) as? Double ?? 0) ?? UpdateFrequency.medium,
                                         time: args?[Constants.progress] as? Double ?? 0,
