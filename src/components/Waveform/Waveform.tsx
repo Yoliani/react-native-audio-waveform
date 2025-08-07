@@ -58,11 +58,12 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     scrubColor,
     onPlayerStateChange,
     onRecorderStateChange,
-    onPanStateChange = () => {},
-    onError = (_error: Error) => {},
-    onCurrentProgressChange = () => {},
+    onPanStateChange = () => { },
+    onError = (_error: Error) => { },
+    onRecordingProgressChange = () => { },
+    onCurrentProgressChange = () => { },
     candleHeightScale = 3,
-    onChangeWaveformLoadState = (_state: boolean) => {},
+    onChangeWaveformLoadState = (_state: boolean) => { },
     showsHorizontalScrollIndicator = false,
   } = props as StaticWaveform & LiveWaveform;
   const viewRef = useRef<View>(null);
@@ -504,6 +505,9 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     const traceRecorderWaveformValue = onCurrentRecordingWaveformData(
       result => {
         if (mode === 'live') {
+          if (!isNil(onRecordingProgressChange)) {
+            (onRecordingProgressChange)(result.progress);
+          }
           if (!isNil(result.currentDecibel)) {
             setWaveform((previousWaveform: number[]) => {
               // Add the new decibel to the waveform
@@ -587,7 +591,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
         setPanMoving(true);
         (onPanStateChange as Function)(true);
       },
-      onPanResponderStart: () => {},
+      onPanResponderStart: () => { },
       onPanResponderMove: event => {
         setSeekPosition(event.nativeEvent);
       },
