@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
   s.platforms    = { :ios => "12.4" }
-  s.source       = { :git => "https://github.com/SimformSolutionsPvtLtd/react-native-audio-waveform.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/Yoliani/react-native-audio-waveform.git", :tag => "#{s.version}" }
   s.source_files = "ios/**/*.{h,m,mm,swift}"
 
   # Use install_modules_dependencies helper to install the dependencies if React Native version >=0.71.0.
