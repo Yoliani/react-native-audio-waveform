@@ -60,7 +60,7 @@ export const Waveform = forwardRef<IWaveformRef, IWaveform>((props, ref) => {
     onRecorderStateChange,
     onPanStateChange = () => { },
     onError = (_error: Error) => { },
-    onRecordingProgressChange = () => { },
+    onRecordingProgressChange = (progress: number) => { },
     onCurrentProgressChange = () => { },
     candleHeightScale = 3,
     onChangeWaveformLoadState = (_state: boolean) => { },
