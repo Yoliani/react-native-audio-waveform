@@ -140,7 +140,6 @@ class AudioWaveform: RCTEventEmitter {
         reject(Constants.audioWaveforms, "Failed to decode audio file", e)
       }
   }
-  }
 
   func normalizeWaveformData(data: [[Float]], scale: Float = 0.25, threshold: Float = 0.01) -> [[Float]] {
     return data.map { channelData in
